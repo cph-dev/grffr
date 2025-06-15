@@ -1,0 +1,12 @@
+/tmp
+*/tmp
+.env
+compose.override.yml
+docker-compose.override.yml
+go.work*
+.DS_Store/
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+.taplo.toml
