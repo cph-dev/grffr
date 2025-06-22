@@ -31,21 +31,33 @@ func (a *App) initWebServer() error {
 	mux.Route("/.well-known/health", func(r chi.Router) {
 
 		// Is application started up?
+		//
+		// Don't do other health checks until the application has
+		// declared itself as started.
 		if a.configuration.StartupHandler != nil {
 			r.Handle("GET /startup", a.configuration.StartupHandler)
 		}
 
 		// Is application alive?
+		//
+		// If not alive then the application/process/container should be
+		// terminated and not be sent any traffic.
 		if a.configuration.LivenessHandler != nil {
 			r.Handle("GET /alive", a.configuration.LivenessHandler)
 		}
 
 		// Is application ready to serve?
+		//
+		// Determines if the application is currently ready to serve traffic.
+		// If not then wait some time and ask again if ready.
+		// Not being ready is a temporary state unlike not being alive.
 		if a.configuration.ReadinessHandler != nil {
 			r.Handle("GET /ready", a.configuration.ReadinessHandler)
 		}
 
 		// What's the health status of the application?
+		//
+		// This is a more detailed report on the applications health.
 		if a.configuration.StatusHandler != nil {
 			r.Handle("GET /status", a.configuration.StatusHandler)
 		}
@@ -69,7 +81,7 @@ func (a *App) initWebServer() error {
 	// TODO: This is probably not correct.
 	// When should inflight context be cancelled?
 	a.httpServer.RegisterOnShutdown(func() {
-		slog.Info("Cancel inflight context")
+		slog.Debug("Cancel inflight context")
 		inflightCancel()
 	})
 

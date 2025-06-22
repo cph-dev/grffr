@@ -57,7 +57,6 @@ func New(opts ...options.Option) *App {
 
 	app.configuration = cfg
 
-	slog.Debug("Grffr application ready to run.")
 	return &app
 }
 
@@ -70,6 +69,7 @@ type App struct {
 	configuration  options.Configuration
 	isShuttingDown atomic.Bool
 	httpServer     http.Server
+	components     []Component
 }
 
 func (a *App) Run() {
@@ -81,6 +81,7 @@ func (a *App) Run() {
 		slog.Info("Shutdown complete. Ktxb.")
 	}()
 
+	// TODO: Support for start-up deadline?
 	ctx := context.Background()
 
 	a.startedAt = time.Now()
@@ -100,7 +101,7 @@ func (a *App) Run() {
 	}
 }
 
-func (a *App) init(_ context.Context) error {
+func (a *App) init(ctx context.Context) error {
 	a.debug = a.configuration.Debug
 
 	if a.configuration.Logger != nil {
@@ -108,6 +109,7 @@ func (a *App) init(_ context.Context) error {
 		slog.SetDefault(a.logger)
 	}
 	return errors.Join(
+		a.initComponents(ctx),
 		a.initWebServer(),
 	)
 }
@@ -123,7 +125,7 @@ func (a *App) run(ctx context.Context) error {
 		e = errors.Join(e, err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(),
+	ctx, stop := signal.NotifyContext(ctx,
 		// We need to use os.Interrupt to gracefully shutdown on Ctrl+C which is SIGINT
 		os.Interrupt,
 
@@ -161,6 +163,15 @@ func (a *App) run(ctx context.Context) error {
 		}
 	}()
 
+	// Start components
+	startUpCtx, startUpCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer startUpCancel()
+
+	err := a.startComponents(startUpCtx, &exit)
+	if err != nil {
+		addErr(fmt.Errorf("starting components: %w", err))
+	}
+
 	// Start web server
 	exit.Add(1)
 	go func() {
@@ -180,9 +191,14 @@ func (a *App) run(ctx context.Context) error {
 	return e
 }
 
+// shutdown components and services.
+//
+// Services are shutdown first to ensure request drain, then
+// components are stopped.
 func (a *App) shutdown(ctx context.Context) error {
 	err := errors.Join(
 		a.httpServer.Shutdown(ctx),
+		a.stopComponents(ctx),
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "Shutdown", "error", err)
