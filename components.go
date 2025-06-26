@@ -2,10 +2,13 @@ package grffr
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	"go.cph.dev/grffr/logging"
 )
 
 // AddComponent to application.
@@ -53,25 +56,33 @@ func (a *App) initComponents(ctx context.Context) error {
 
 	return result
 }
+
 func (a *App) startComponents(
 	ctx context.Context,
 	exit *sync.WaitGroup,
-) error {
-	var result error
-
+) {
 	for c := range slices.Values(a.components) {
 
 		exit.Add(1)
 		go func() {
 			defer exit.Done()
 
+			if named, ok := c.(Named); ok {
+				slog.InfoContext(ctx, "Starting component.",
+					"named", named.Name(),
+					"type", fmt.Sprintf("%T", c),
+				)
+			} else {
+				slog.InfoContext(ctx, "Starting component.",
+					"type", fmt.Sprintf("%T", c),
+				)
+			}
+
 			if err := c.Start(ctx); err != nil {
-				result = multierror.Append(result, err)
+				slog.WarnContext(ctx, "starting component", logging.Error(err))
 			}
 		}()
 	}
-
-	return result
 }
 
 func (a *App) stopComponents(ctx context.Context) error {

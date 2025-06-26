@@ -167,10 +167,7 @@ func (a *App) run(ctx context.Context) error {
 	startUpCtx, startUpCancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer startUpCancel()
 
-	err := a.startComponents(startUpCtx, &exit)
-	if err != nil {
-		addErr(fmt.Errorf("starting components: %w", err))
-	}
+	a.startComponents(startUpCtx, &exit)
 
 	// Start web server
 	exit.Add(1)
