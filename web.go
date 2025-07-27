@@ -69,6 +69,9 @@ func (a *App) initWebServer() error {
 		Addr:    fmt.Sprintf(":%v", port),
 		Handler: mux,
 
+		// TODO: Timeouts should probably not be hard-coded in a framework like this
+		// as use cases are unknown and some services might need short timeouts, and other might
+		//  need longer timeouts.
 		ReadTimeout:       2 * time.Minute,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      time.Minute,
