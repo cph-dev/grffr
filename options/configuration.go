@@ -17,6 +17,10 @@ type Option func(*Configuration)
 type Configuration struct {
 	Debug bool
 
+	// Banner is a boolean flag that indicates whether the application should
+	// display a banner on startup.
+	Banner bool
+
 	// Logger to use in application.
 	Logger *slog.Logger
 

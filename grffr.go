@@ -2,6 +2,7 @@ package grffr
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,18 +33,22 @@ const (
 	shutdownDuration = 15 * time.Second
 )
 
+var (
+	version = "0.0.1"
+)
+
+//go:embed banner.txt
+var banner string
+
 // New creates a new App with the given options applied.
 //
 // Defaults are applied before options and can be overrriden or entirely disabled.
 func New(opts ...options.Option) *App {
 	app := App{}
 
-	logger := logging.Configure()
-	slog.SetDefault(logger)
-
 	slog.Debug("Setting defaults.")
 	cfg := options.Configuration{
-		Logger:           logger,
+		Banner:           true,
 		StartupHandler:   app.defaultStartupHandler(),
 		ReadinessHandler: app.defaultReadinessHandler(),
 		LivenessHandler:  app.defaultLivenessHandler(),
@@ -73,6 +78,9 @@ type App struct {
 }
 
 func (a *App) Run() {
+	if a.configuration.Banner {
+		fmt.Printf(banner, version)
+	}
 	defer func() {
 		if err := recover(); err != nil {
 			slog.Error("Panic, terminating program.", "error", err)
@@ -86,7 +94,7 @@ func (a *App) Run() {
 
 	a.startedAt = time.Now()
 
-	slog.Debug("Initialising Grffr application...")
+	slog.Debug("Initialising Grffr application... Rock n Roll")
 	err := a.init(ctx)
 	if err != nil {
 		slog.Error("Initialising Grffr application", "error", err)
@@ -104,10 +112,14 @@ func (a *App) Run() {
 func (a *App) init(ctx context.Context) error {
 	a.debug = a.configuration.Debug
 
+	// TODO: If Debug is not enabled then log level should be adjusted.
 	if a.configuration.Logger != nil {
 		a.logger = a.configuration.Logger
-		slog.SetDefault(a.logger)
+	} else {
+		a.logger = logging.Configure()
 	}
+	slog.SetDefault(a.logger)
+
 	return errors.Join(
 		a.initComponents(ctx),
 		a.initWebServer(),
