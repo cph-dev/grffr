@@ -8,14 +8,16 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	"go.cph.dev/grffr/data"
 	"go.cph.dev/grffr/logging"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AddComponent to application.
 //
-// It will be started when the apps Start() is called.
-// And stopped again during the shutdown sequence after
-// all incoming requests are drained.
+// The app will start up the component and make sure it is
+// also stopped again during the shutdown sequence after
+// all incoming requests are drained.cccccbrfgkcdduculkblceldlhevurnlcgbtgiffgvtj
 //
 // Implement [Name() string] (NamedComponent interface)
 // for more context during logging, etc.
@@ -42,13 +44,47 @@ type NamedComponent interface {
 	Named
 }
 
+// NamedComponent is a component with a name.
+//
+// Name will be used to easier identify component in logging,
+// tracing, etc.
 type Named interface {
 	Name() string
+}
+
+// WantLogger is a component with a logger.
+//
+// UseLogger will be called during initialization.
+type WantLogger interface {
+	UseLogger(*slog.Logger)
+}
+
+// WantTracer is a component with a tracer.
+//
+// UseTracer will be called during initialization.
+type WantTracer interface {
+	UseTracer(trace.Tracer)
+}
+
+// WantSQL is a component with a SQL connection.
+//
+// UseSQL will be called during initialization.
+type WantSQL interface {
+	UseSQL(data.SQL)
 }
 
 func (a *App) initComponents(ctx context.Context) error {
 	var result error
 	for c := range slices.Values(a.components) {
+		if logger, ok := c.(WantLogger); ok {
+			logger.UseLogger(a.logger)
+		}
+		if tracer, ok := c.(WantTracer); ok {
+			tracer.UseTracer(a.tracer)
+		}
+		if sql, ok := c.(WantSQL); ok {
+			sql.UseSQL(a.sql)
+		}
 		if err := c.Init(ctx); err != nil {
 			result = multierror.Append(result, err)
 		}
@@ -62,24 +98,29 @@ func (a *App) startComponents(
 	exit *sync.WaitGroup,
 ) {
 	for c := range slices.Values(a.components) {
+		startCtx := ctx
+		if named, ok := c.(Named); ok {
+			startCtx = logging.AppendCtx(startCtx,
+				slog.Group("component",
+					slog.String("named", named.Name()),
+					slog.String("type", fmt.Sprintf("%T", c)),
+				),
+			)
+		} else {
+			startCtx = logging.AppendCtx(startCtx,
+				slog.Group("component",
+					slog.String("type", fmt.Sprintf("%T", c)),
+				),
+			)
+		}
+		slog.InfoContext(startCtx, "Starting")
 
 		exit.Add(1)
 		go func() {
 			defer exit.Done()
 
-			if named, ok := c.(Named); ok {
-				slog.InfoContext(ctx, "Starting component.",
-					"named", named.Name(),
-					"type", fmt.Sprintf("%T", c),
-				)
-			} else {
-				slog.InfoContext(ctx, "Starting component.",
-					"type", fmt.Sprintf("%T", c),
-				)
-			}
-
-			if err := c.Start(ctx); err != nil {
-				slog.WarnContext(ctx, "starting component", logging.Error(err))
+			if err := c.Start(startCtx); err != nil {
+				slog.WarnContext(startCtx, "Starting component failed", logging.Error(err))
 			}
 		}()
 	}
@@ -87,8 +128,23 @@ func (a *App) startComponents(
 
 func (a *App) stopComponents(ctx context.Context) error {
 	var result error
-
+	a.logger.Info("Stopping components.")
 	for c := range slices.Values(a.components) {
+		if named, ok := c.(Named); ok {
+			ctx = logging.AppendCtx(ctx,
+				slog.Group("component",
+					slog.String("named", named.Name()),
+					slog.String("type", fmt.Sprintf("%T", c)),
+				),
+			)
+		} else {
+			ctx = logging.AppendCtx(ctx,
+				slog.Group("component",
+					slog.String("type", fmt.Sprintf("%T", c)),
+				),
+			)
+		}
+		a.logger.InfoContext(ctx, "Stopping component")
 		if err := c.Stop(ctx); err != nil {
 			result = multierror.Append(result, err)
 		}
