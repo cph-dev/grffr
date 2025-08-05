@@ -15,8 +15,10 @@ import (
 	"syscall"
 	"time"
 
+	"go.cph.dev/grffr/data"
 	"go.cph.dev/grffr/logging"
 	"go.cph.dev/grffr/options"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -34,7 +36,7 @@ const (
 )
 
 var (
-	version = "0.0.1"
+	version = "v0.0.3"
 )
 
 //go:embed banner.txt
@@ -42,7 +44,7 @@ var banner string
 
 // New creates a new App with the given options applied.
 //
-// Defaults are applied before options and can be overrriden or entirely disabled.
+// Defaults are applied before options, and can be overrriden or entirely disabled.
 func New(opts ...options.Option) *App {
 	app := App{}
 
@@ -70,6 +72,8 @@ func New(opts ...options.Option) *App {
 type App struct {
 	debug          bool
 	logger         *slog.Logger
+	tracer         trace.Tracer
+	sql            data.SQL
 	startedAt      time.Time
 	configuration  options.Configuration
 	isShuttingDown atomic.Bool
@@ -94,17 +98,15 @@ func (a *App) Run() {
 
 	a.startedAt = time.Now()
 
-	slog.Debug("Initialising Grffr application... Rock n Roll")
 	err := a.init(ctx)
 	if err != nil {
-		slog.Error("Initialising Grffr application", "error", err)
+		slog.Error("Initialising application", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("Starting Grffr application...")
 	err = a.run(ctx)
 	if err != nil {
-		slog.Error("Running Grffr application", "error", err)
+		slog.Error("Running application", "error", err)
 		os.Exit(2)
 	}
 }
@@ -176,9 +178,7 @@ func (a *App) run(ctx context.Context) error {
 	}()
 
 	// Start components
-	startUpCtx, startUpCancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer startUpCancel()
-
+	startUpCtx := context.WithoutCancel(ctx)
 	a.startComponents(startUpCtx, &exit)
 
 	// Start web server
